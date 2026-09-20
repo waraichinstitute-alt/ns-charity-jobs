@@ -6,6 +6,9 @@
 <title>NS Charity Jobs — Current openings at Nova Scotia charities</title>
 <meta name="description" content="Automatically updated listing of current job openings at charities in Nova Scotia.">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
 </head>
 <body>
 <header class="site-header">
@@ -36,7 +39,15 @@
   </section>
 
   <p class="count" id="count"></p>
+  <div class="tabs" role="tablist" aria-label="List or map view">
+    <button type="button" id="tab-list" class="tab active" role="tab" aria-selected="true">List</button>
+    <button type="button" id="tab-map" class="tab" role="tab" aria-selected="false">Map</button>
+  </div>
   <section id="list" class="list" aria-live="polite"></section>
+  <section id="mapwrap" hidden>
+    <div id="map" role="application" aria-label="Map of job locations"></div>
+    <p class="mapnote" id="mapnote"></p>
+  </section>
   <p class="empty" id="empty" hidden>No openings match your filters. Try widening the search.</p>
 </main>
 
@@ -47,6 +58,8 @@
   </div>
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

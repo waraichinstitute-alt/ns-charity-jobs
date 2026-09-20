@@ -65,6 +65,32 @@ body {
 }
 .count { color: var(--muted); font-size: .9rem; margin: 8px 0 0; }
 
+.tabs { display: flex; gap: 8px; margin: 14px 0 0; }
+.tab {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: .95rem;
+  font-weight: 600;
+  padding: 8px 24px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+#map {
+  height: 62vh;
+  min-height: 380px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 12px 0 8px;
+  z-index: 0;
+}
+.leaflet-container { font: inherit; }
+.mapnote { color: var(--muted); font-size: .85rem; margin: 0 0 32px; }
+.popup { font-size: .9rem; line-height: 1.5; }
+.popup-meta { color: var(--muted); font-size: .8rem; }
+.popup a { color: var(--accent); font-weight: 600; }
+
 .list { display: grid; gap: 12px; margin: 12px 0 32px; }
 .card {
   background: var(--card);
