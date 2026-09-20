@@ -145,6 +145,7 @@
 
   function popupFor(j) {
     var bits = [j.location, postedLabel(j)].filter(Boolean).join(" · ");
+    if (j.estimatedLocation) bits += " (approx. location)";
     return '<div class="popup"><strong>' + esc(j.title) + "</strong><br>" +
       esc(j.employer) + (j.charity ? " ✓" : "") + "<br>" +
       '<span class="popup-meta">' + esc(bits) + "</span><br>" +

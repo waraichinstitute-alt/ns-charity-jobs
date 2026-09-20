@@ -163,9 +163,82 @@ const NS_GEO = {
   "musquodoboit harbour": [44.7667, -63.1333],
   "sheet harbour": [44.9167, -62.8333],
 };
+// Fallback coordinates for broad / non-NS locations, so every job can
+// appear on the map. Anything from these fallbacks is marked estimated
+// and the UI labels it "approx. location".
+const PROVINCE_GEO = {
+  "ontario": [43.6532, -79.3832],
+  "quebec": [46.8139, -71.2080],
+  "british columbia": [49.2827, -123.1207],
+  "alberta": [51.0447, -114.0719],
+  "saskatchewan": [52.1332, -106.6700],
+  "manitoba": [49.8951, -97.1384],
+  "new brunswick": [45.9636, -66.6431],
+  "newfoundland": [47.5615, -52.7126],
+  "newfoundland & labrador": [47.5615, -52.7126],
+  "prince edward island": [46.2382, -63.1311],
+  "nova scotia": [45.0000, -63.0000],
+  "northwest territories": [62.4540, -114.3718],
+  "nunavut": [63.7467, -68.5170],
+  "yukon": [60.7217, -135.0538],
+};
+const CITY_GEO = {
+  "st. john's": [47.5615, -52.7126],
+  "toronto": [43.6532, -79.3832], "ottawa": [45.4215, -75.6972],
+  "montreal": [45.5017, -73.5673], "vancouver": [49.2827, -123.1207],
+  "calgary": [51.0447, -114.0719], "edmonton": [53.5461, -113.4938],
+  "winnipeg": [49.8951, -97.1384], "fredericton": [45.9636, -66.6431],
+  "charlottetown": [46.2382, -63.1311],
+};
+// Normalized [name, coords] pairs, longest names first (object keys may
+// carry punctuation that normText strips from locations).
+const normKeys = (obj) => Object.keys(obj)
+  .map((k) => [normText(k), obj[k]])
+  .sort((a, b) => b[0].length - a[0].length);
+const CITY_KEYS = normKeys(CITY_GEO);
+const PROV_KEYS = normKeys(PROVINCE_GEO);
 function geocodeCity(loc) {
-  const c = cityOf(loc).replace(/\s+ns$/, "");
-  return NS_GEO[c] || null;
+  const raw = normText(loc || "");
+  if (!raw) return null;
+  // 1) NS communities. Longest names first ("north sydney" beats "sydney");
+  //    each match is blanked out so overlapping shorter names can't
+  //    double-count. Handles street addresses like
+  //    "37 Nepean St, Sydney, NS B1P 6A7, Canada".
+  let work = raw;
+  const hits = [];
+  for (const n of Object.keys(NS_GEO).sort((a, b) => b.length - a.length)) {
+    if (work.includes(n)) {
+      hits.push(n);
+      work = work.split(n).join(" ");
+    }
+  }
+  if (hits.length) {
+    // A posting naming several places (e.g. "Calgary area, ...,
+    // Central / Halifax area") gets an estimated pin, not a false "exact".
+    const mentionsElsewhere =
+      CITY_KEYS.some(([n]) => work.includes(n)) || PROV_KEYS.some(([n]) => work.includes(n));
+    const ll = NS_GEO[hits[0]];
+    return { lat: ll[0], lng: ll[1], estimated: hits.length > 1 || mentionsElsewhere };
+  }
+  // 2) Major Canadian city named (usually a remote / multi-region posting).
+  for (const [n, ll] of CITY_KEYS) {
+    if (raw.includes(n)) return { lat: ll[0], lng: ll[1], estimated: true };
+  }
+  // 3) Province named. Nova Scotia wins ties: this is an NS jobs site and
+  //    multi-province lists ("Ontario, ..., Nova Scotia, ...") are pinned
+  //    on the province, not on e.g. the Northwest Territories.
+  if (raw.includes("nova scotia")) {
+    const ll = PROVINCE_GEO["nova scotia"];
+    return { lat: ll[0], lng: ll[1], estimated: true };
+  }
+  for (const [n, ll] of PROV_KEYS) {
+    if (raw.includes(n)) return { lat: ll[0], lng: ll[1], estimated: true };
+  }
+  // 4) Broad / remote: "canada", "from anywhere", "remote" -> NS hub pin.
+  if (/\b(canada|from anywhere|anywhere|remote|virtual|work from home)\b/.test(raw)) {
+    return { lat: 44.6488, lng: -63.5752, estimated: true };
+  }
+  return null;
 }
 function dedupeKey(j) {
   return normName(j.employer) + "|" + normText(j.title) + "|" + cityOf(j.location);
@@ -476,19 +549,21 @@ class JobsDB {
     }
     if (p === "/internal/sync") {
       const phase = url.searchParams.get("phase") || "all";
-      // simple lock: skip if another sync started < 20 min ago
-      const lock = this.kvGet("sync_lock");
+      // Per-phase lock: a wedged phase must never block the other phases.
+      // Skip if this phase started < 20 min ago and hasn't released its lock.
+      const lockKey = "sync_lock:" + phase;
+      const lock = this.kvGet(lockKey);
       if (lock && Date.now() - parseInt(lock, 10) < 20 * 60 * 1000) {
         return Response.json({ ok: false, busy: true, phase });
       }
-      this.kvSet("sync_lock", String(Date.now()));
+      this.kvSet(lockKey, String(Date.now()));
       try {
         const result = await this.runPhase(phase);
         return Response.json({ ok: true, phase, ...result });
       } catch (err) {
         return Response.json({ ok: false, phase, error: String(err && err.message || err) }, { status: 500 });
       } finally {
-        this.kvSet("sync_lock", "0");
+        this.kvSet(lockKey, "0");
       }
     }
     return new Response("not found", { status: 404 });
@@ -566,8 +641,9 @@ class JobsDB {
           title: j.title,
           employer: j.employer,
           location: j.location,
-          lat: geo ? geo[0] : null,
-          lng: geo ? geo[1] : null,
+          lat: geo ? geo.lat : null,
+          lng: geo ? geo.lng : null,
+          estimatedLocation: geo ? !!geo.estimated : false,
           workModel: j.workModel || "",
           jobType: j.jobType || "",
           posted: j.posted || null,
@@ -598,12 +674,19 @@ class JobsDB {
 
 const PHASES = ["charities", "charityvillage", "winp", "jobbank", "finalize"];
 
+// A hung phase invocation must never wedge the chain: each phase gets
+// 150s, then we move on. finalize always runs, so the site keeps
+// refreshing even when a source misbehaves.
+const PHASE_TIMEOUT_MS = 150000;
 async function runAllPhases(env) {
   const stub = env.JOBS_DB.get(env.JOBS_DB.idFromName(DB_NAME));
   const results = [];
   for (const phase of PHASES) {
     try {
-      const r = await stub.fetch("https://internal/internal/sync?phase=" + phase);
+      const r = await Promise.race([
+        stub.fetch("https://internal/internal/sync?phase=" + phase),
+        sleep(PHASE_TIMEOUT_MS).then(() => { throw new Error("phase timed out after 150s"); }),
+      ]);
       const body = await r.text();
       results.push({ phase, status: r.status, body: body.slice(0, 300) });
     } catch (err) {
@@ -629,8 +712,17 @@ export default {
       if (url.searchParams.get("key") !== env.ADMIN_KEY) {
         return new Response("forbidden", { status: 403 });
       }
-      ctx.waitUntil(runAllPhases(env)); // runs ~40s in background; data appears when done
+      ctx.waitUntil(runAllPhases(env)); // runs in background; data appears when done
       return Response.json({ ok: true, started: true, note: "sync running in background; check /api/status in about a minute" });
+    }
+    if (url.pathname === "/api/admin/sync-now") {
+      if (url.searchParams.get("key") !== env.ADMIN_KEY) {
+        return new Response("forbidden", { status: 403 });
+      }
+      // Runs the whole phase chain inline and returns per-phase results.
+      // Reliable fallback when background (waitUntil) runs get cut short.
+      const results = await runAllPhases(env);
+      return Response.json({ ok: true, results });
     }
     return env.ASSETS.fetch(request);
   },
