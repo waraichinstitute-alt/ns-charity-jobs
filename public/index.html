@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NS Charity Jobs — Current openings at Nova Scotia charities</title>
+<meta name="description" content="Automatically updated listing of current job openings at charities in Nova Scotia.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <h1>NS Charity Jobs</h1>
+    <p class="tagline">Current openings at charities across Nova Scotia — refreshed daily, automatically.</p>
+    <p class="meta" id="meta">Loading…</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="controls" aria-label="Search and filter jobs">
+    <input id="q" type="search" placeholder="Search title or employer…" autocomplete="off">
+    <select id="city" aria-label="Filter by city"><option value="">All locations</option></select>
+    <select id="jtype" aria-label="Filter by job type">
+      <option value="">All job types</option>
+      <option>Full-time</option>
+      <option>Part-time</option>
+      <option>Contract</option>
+    </select>
+    <select id="wmodel" aria-label="Filter by work model">
+      <option value="">On-site / hybrid / remote</option>
+      <option>On-site</option>
+      <option>Hybrid</option>
+      <option>Remote</option>
+    </select>
+    <label class="check"><input type="checkbox" id="charityOnly"> Registered charities only</label>
+  </section>
+
+  <p class="count" id="count"></p>
+  <section id="list" class="list" aria-live="polite"></section>
+  <p class="empty" id="empty" hidden>No openings match your filters. Try widening the search.</p>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>Listings are gathered automatically from CharityVillage, WorkInNonProfits.ca and the federal Job Bank, and matched against the CRA registry of charities. Always confirm details on the original posting before applying.</p>
+    <p class="tiny">Job descriptions are never copied here — each card links out to the source. Updated daily.</p>
+  </div>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

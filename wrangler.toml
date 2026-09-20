@@ -1,0 +1,25 @@
+name = "ns-charity-jobs"
+main = "src/worker.js"
+compatibility_date = "2026-09-20"
+
+# Durable Object holds all state (jobs, charity names, sync lock) in SQLite.
+# No KV/R2/D1 pre-provisioning needed — the class is created from this file.
+[[durable_objects.bindings]]
+name = "JOBS_DB"
+class_name = "JobsDB"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JobsDB"]
+
+# Daily refresh. Times are UTC; 10:00 UTC = 07:00 ADT (Halifax).
+[triggers]
+crons = ["0 10 * * *"]
+
+[assets]
+directory = "./public"
+
+[vars]
+# Key for the manual /api/admin/sync?key=... trigger. Personal-use project;
+# it only re-runs the public-data refresh, nothing destructive.
+ADMIN_KEY = "23c144d886c04a6a9e047cd7180a64a0"
