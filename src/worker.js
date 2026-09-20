@@ -15,6 +15,14 @@ const DB_NAME = "main";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Fail fast: a hanging source must never wedge the whole pipeline.
+// Each HTTP fetch gets 30s; a timed-out source keeps its last good
+// staging data and the remaining phases still run.
+const FETCH_TIMEOUT_MS = 30000;
+function fetchT(url, opts) {
+  return fetch(url, Object.assign({}, opts, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }));
+}
+
 function unescapeHtml(s) {
   return (s || "")
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
@@ -217,7 +225,7 @@ async function fetchCharityVillage() {
   for (let page = 1; page <= 8; page++) {
     if (page > 1) await sleep(10000); // honor Crawl-delay: 10
     const u = "https://www.charityvillage.com/jobs/nova-scotia" + (page > 1 ? "?page=" + page : "");
-    const r = await fetch(u, { headers: HEADERS });
+    const r = await fetchT(u, { headers: HEADERS });
     if (!r.ok) break;
     const parsed = parseCharityVillage(await r.text());
     if (!parsed.length) break;
@@ -275,7 +283,7 @@ function parseWinp(html) {
 }
 
 async function fetchWinp() {
-  const r = await fetch("https://workinnonprofits.ca/jobs/list-by/region/9/nova-scotia", { headers: HEADERS });
+  const r = await fetchT("https://workinnonprofits.ca/jobs/list-by/region/9/nova-scotia", { headers: HEADERS });
   if (!r.ok) return [];
   return parseWinp(await r.text());
 }
@@ -319,7 +327,7 @@ function parseJobBank(xml) {
 }
 
 async function fetchJobBank() {
-  const r = await fetch(
+  const r = await fetchT(
     "https://www.jobbank.gc.ca/jobsearch/feed/jobSearchRSSfeed?fprov=NS&rows=100&sort=D",
     { headers: HEADERS }
   );
@@ -338,7 +346,7 @@ async function fetchCharityNames() {
   let offset = 0, total = Infinity;
   while (offset < total) {
     const u = `${CKAN}?resource_id=${CKAN_RESOURCE}&filters=${filters}&limit=1000&offset=${offset}`;
-    const r = await fetch(u, { headers: HEADERS });
+    const r = await fetchT(u, { headers: HEADERS });
     if (!r.ok) throw new Error("CKAN HTTP " + r.status);
     const j = await r.json();
     if (!j.success) throw new Error("CKAN API error");
@@ -486,13 +494,23 @@ class JobsDB {
     return new Response("not found", { status: 404 });
   }
 
+  // One failing source must not block the others: each step is isolated,
+  // and a failed source simply keeps its last good staging data.
   async runPhase(phase) {
-    if (phase === "charities" || phase === "all") await this.syncCharities();
-    if (phase === "charityvillage" || phase === "all") await this.syncSource("charityvillage", fetchCharityVillage);
-    if (phase === "winp" || phase === "all") await this.syncSource("winp", fetchWinp);
-    if (phase === "jobbank" || phase === "all") await this.syncSource("jobbank", fetchJobBank);
-    if (phase === "finalize" || phase === "all") await this.finalize();
-    return { done: true };
+    const errors = {};
+    const step = async (name, fn) => {
+      try {
+        await fn();
+      } catch (err) {
+        errors[name] = String((err && err.message) || err);
+      }
+    };
+    if (phase === "charities" || phase === "all") await step("charities", () => this.syncCharities());
+    if (phase === "charityvillage" || phase === "all") await step("charityvillage", () => this.syncSource("charityvillage", fetchCharityVillage));
+    if (phase === "winp" || phase === "all") await step("winp", () => this.syncSource("winp", fetchWinp));
+    if (phase === "jobbank" || phase === "all") await step("jobbank", () => this.syncSource("jobbank", fetchJobBank));
+    if (phase === "finalize" || phase === "all") await step("finalize", () => this.finalize());
+    return { done: true, errors };
   }
 
   async syncCharities() {
@@ -584,9 +602,14 @@ async function runAllPhases(env) {
   const stub = env.JOBS_DB.get(env.JOBS_DB.idFromName(DB_NAME));
   const results = [];
   for (const phase of PHASES) {
-    const r = await stub.fetch("https://internal/internal/sync?phase=" + phase);
-    results.push({ phase, status: r.status, body: await r.text() });
-    if (r.status !== 200) break;
+    try {
+      const r = await stub.fetch("https://internal/internal/sync?phase=" + phase);
+      const body = await r.text();
+      results.push({ phase, status: r.status, body: body.slice(0, 300) });
+    } catch (err) {
+      // Never let one phase break the chain; finalize must still run.
+      results.push({ phase, status: "dispatch-error", body: String((err && err.message) || err).slice(0, 300) });
+    }
   }
   return results;
 }
